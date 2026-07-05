@@ -1,80 +1,161 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import linregress
+import pandas as pd
+from scipy.stats import norm
 
-BS_call,BS_put=10.4506,7.0740
+# -----------------------------
+# Parameters
+# -----------------------------
+S0 = 100
+K = 100
+r = 0.05
+sigma = 0.2
+T = 1
 
-def euler_price(S0,K,r,sigma,T,M,m):
-    dt=T/m; call_payoffs=np.zeros(M); put_payoffs=np.zeros(M)
-    for i in range(M):
-        S=S0
-        for _ in range(m):
-            S*=1+r*dt+sigma*np.sqrt(dt)*np.random.normal()
-        call_payoffs[i]=max(S-K,0); put_payoffs[i]=max(K-S,0)
-    df=np.exp(-r*T)
-    return df*np.mean(call_payoffs),df*np.sqrt(np.var(call_payoffs,ddof=1)/M),df*np.mean(put_payoffs),df*np.sqrt(np.var(put_payoffs,ddof=1)/M)
+np.random.seed(2026)
 
-print("="*80+"\nPART 1: m=100, vary M\n"+"="*80)
-np.random.seed(42); results1=[]
-print(f"{'M':<12}{'Call':<15}{'Call SE':<15}{'Put':<15}{'Put SE':<15}")
-print("-"*80)
-for M in [100,1000,10000,100000]:
-    c,cs,p,ps=euler_price(100,100,.05,.2,1,M,100)
-    results1.append({'M':M,'c':c,'cs':cs,'p':p,'ps':ps})
-    print(f"{M:<12}{c:<15.6f}{cs:<15.6f}{p:<15.6f}{ps:<15.6f}")
+# -----------------------------
+# Black-Scholes Call Price
+# -----------------------------
+def black_scholes_call(S0, K, r, sigma, T):
+    d1 = (np.log(S0 / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
 
-print("\nSE*√M should be constant:")
-for r in results1:
-    print(f"M={r['M']:<6}: Call SE*√M={r['cs']*np.sqrt(r['M']):.4f}, Put SE*√M={r['ps']*np.sqrt(r['M']):.4f}")
+    return S0 * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
 
-slope=linregress(np.log10([r['M'] for r in results1]),np.log10([r['cs'] for r in results1]))[0]
-print(f"\nSlope: {slope:.4f} (should be -0.5)\n")
+VBS = black_scholes_call(S0, K, r, sigma, T)
 
-print("="*80+"\nPART 2: M=10^5, vary m\n"+"="*80)
-np.random.seed(42); results2=[]
-print(f"{'m':<12}{'Call':<15}{'Call Error':<15}{'Put':<15}{'Put Error':<15}")
-print("-"*80)
-for m in [10,50,100,500,1000]:
-    c,cs,p,ps=euler_price(100,100,.05,.2,1,100000,m)
-    results2.append({'m':m,'c':c,'ce':abs(c-BS_call),'p':p,'pe':abs(p-BS_put)})
-    print(f"{m:<12}{c:<15.6f}{results2[-1]['ce']:<15.6f}{p:<15.6f}{results2[-1]['pe']:<15.6f}")
+print(f"Black-Scholes Price = {VBS:.6f}")
 
-print("\nBias check (error trend):")
-for i,r in enumerate(results2):
-    print(f"m={r['m']:4}: Call error={r['ce']:.6f}" + (f" (change={r['ce']-results2[i-1]['ce']:.6f})" if i>0 else ""))
+# -----------------------------
+# Euler Monte Carlo Simulator
+# -----------------------------
+def euler_mc(M, m):
 
-print("\n"+"="*80+"\nPART 3: Convergence Table\n"+"="*80)
-M_vals=[100,1000,10000,100000]; m_vals=[10,50,100,500,1000]
-print("\nCall Errors:")
-print("M\\m"+"".join(f"{m:>12}" for m in m_vals)+"\n"+"-"*70)
-for M in M_vals:
-    print(f"{M:<5}",end="")
-    for m in m_vals:
-        c,_,_,_=euler_price(100,100,.05,.2,1,M,m)
-        print(f"{abs(c-BS_call):>12.6f}",end="")
-    print()
+    dt = T / m
 
-print("\nPut Errors:")
-print("M\\m"+"".join(f"{m:>12}" for m in m_vals)+"\n"+"-"*70)
-for M in M_vals:
-    print(f"{M:<5}",end="")
-    for m in m_vals:
-        _,_,p,_=euler_price(100,100,.05,.2,1,M,m)
-        print(f"{abs(p-BS_put):>12.6f}",end="")
-    print()
+    S = np.full(M, S0)
 
-print("\n"+"="*80+"\nPART 4: Optimal (M*,m*) for C=10^7\n"+"="*80)
-C=10**7; np.random.seed(42)
-m_range=[10,50,100,200,500,1000]; best_m=None; best_err=float('inf')
-print(f"{'m':<10}{'M':<15}{'Call Error':<15}{'Put Error':<15}")
-print("-"*80)
-for m in m_range:
-    M=int(C/m)
-    if M<100: continue
-    c,_,p,_=euler_price(100,100,.05,.2,1,M,m)
-    ce,pe=abs(c-BS_call),abs(p-BS_put)
-    print(f"{m:<10}{M:<15}{ce:<15.6f}{pe:<15.6f}")
-    if ce+pe<best_err:
-        best_err=ce+pe; best_m=m; best_M=M
-print("-"*80+f"\nOptimal: m*={best_m}, M*={best_M}, total err={best_err:.6f}\n")
-print(f"Theory: optimal m≈{(C)**(2/3):.0f} for equal weighting\n"+"="*80)
+    for _ in range(m):
+
+        Z = np.random.randn(M)
+
+        S = S + r * S * dt + sigma * S * np.sqrt(dt) * Z
+
+    payoff = np.exp(-r * T) * np.maximum(S - K, 0)
+
+    price = np.mean(payoff)
+
+    se = np.std(payoff, ddof=1) / np.sqrt(M)
+
+    return price, se
+
+# ====================================================
+# Question 1
+# ====================================================
+
+print("\nQUESTION 1")
+print("-" * 60)
+
+M_values = [10**2, 10**3, 10**4, 10**5]
+m = 100
+
+results1 = []
+
+for M in M_values:
+
+    price, se = euler_mc(M, m)
+
+    results1.append([M, price, se])
+
+df1 = pd.DataFrame(results1,
+                   columns=["M", "Price", "Standard Error"])
+
+print(df1)
+
+print("\nObservation:")
+print("Standard error decreases approximately as 1/sqrt(M).")
+
+# ====================================================
+# Question 2
+# ====================================================
+
+print("\nQUESTION 2")
+print("-" * 60)
+
+m_values = [10, 50, 100, 500, 1000]
+M = 10**5
+
+results2 = []
+
+for m in m_values:
+
+    price, se = euler_mc(M, m)
+
+    results2.append([m, price])
+
+df2 = pd.DataFrame(results2,
+                   columns=["m", "Price"])
+
+print(df2)
+
+print("\nObservation:")
+print("As m increases, Euler discretization bias decreases.")
+print("The estimated price converges toward the Black-Scholes price.")
+
+# ====================================================
+# Question 3
+# ====================================================
+
+print("\nQUESTION 3")
+print("-" * 60)
+
+results3 = []
+
+for m in m_values:
+
+    for M in M_values:
+
+        price, se = euler_mc(M, m)
+
+        error = abs(price - VBS)
+
+        results3.append([M, m, price, error])
+
+df3 = pd.DataFrame(results3,
+                   columns=["M", "m", "Price", "Absolute Error"])
+
+print(df3)
+
+# ====================================================
+# Question 4
+# ====================================================
+
+print("\nQUESTION 4")
+print("-" * 60)
+
+C = 10**7
+
+print(f"Budget = {C:,} operations")
+
+best_pair = None
+best_error = np.inf
+
+for m in [10, 50, 100, 500, 1000]:
+
+    M = C // m
+
+    price, se = euler_mc(int(M), m)
+
+    error = abs(price - VBS)
+
+    if error < best_error:
+
+        best_error = error
+        best_pair = (int(M), m, price, error)
+
+print("\nSuggested Optimal Allocation")
+
+print(f"M* = {best_pair[0]:,}")
+print(f"m* = {best_pair[1]}")
+print(f"Estimated Price = {best_pair[2]:.6f}")
+print(f"Absolute Error = {best_pair[3]:.6f}")
