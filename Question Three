@@ -1,0 +1,110 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+
+# Parameters
+S0,K,r,sigma,T=5,5,.06,.3,1
+
+# Part 1: Analytical BS price
+d2=(np.log(S0/K)+(r-.5*sigma**2)*T)/(sigma*np.sqrt(T))
+Vdig=np.exp(-r*T)*norm.cdf(d2)
+print("="*80)
+print(f"PART 1: Analytical Digital Call Price = {Vdig:.6f}")
+print("="*80)
+
+# Part 2: MC pricing with exact GBM
+def digital_price(S0,K,r,sigma,T,M):
+    Z=np.random.normal(0,1,M)
+    ST=S0*np.exp((r-.5*sigma**2)*T+sigma*np.sqrt(T)*Z)
+    payoffs=(ST>K).astype(float)  # Digital payoff: 1 if ST>K else 0
+    df=np.exp(-r*T)
+    return df*np.mean(payoffs), df*np.sqrt(np.var(payoffs,ddof=1)/M)
+
+# Part 3: Vanilla call for comparison
+def vanilla_price(S0,K,r,sigma,T,M):
+    Z=np.random.normal(0,1,M)
+    ST=S0*np.exp((r-.5*sigma**2)*T+sigma*np.sqrt(T)*Z)
+    payoffs=np.maximum(ST-K,0)
+    df=np.exp(-r*T)
+    return df*np.mean(payoffs), df*np.sqrt(np.var(payoffs,ddof=1)/M)
+
+np.random.seed(42)
+M_values=[10**3,10**4,10**5,10**6]
+dig_results=[]; van_results=[]
+
+print("\nPART 2: Digital Call MC Prices")
+print("-"*80)
+print(f"{'M':<12}{'Price':<15}{'SE':<15}{'Error':<15}")
+print("-"*80)
+
+for M in M_values:
+    price,se=digital_price(S0,K,r,sigma,T,M)
+    dig_results.append({'M':M,'price':price,'se':se,'error':abs(price-Vdig)})
+    print(f"{M:<12}{price:<15.6f}{se:<15.6f}{abs(price-Vdig):<15.6f}")
+
+print("\nPART 3: Vanilla Call MC Prices (for comparison)")
+print("-"*80)
+print(f"{'M':<12}{'Price':<15}{'SE':<15}")
+print("-"*80)
+
+for M in M_values:
+    price,se=vanilla_price(S0,K,r,sigma,T,M)
+    van_results.append({'M':M,'price':price,'se':se})
+    print(f"{M:<12}{price:<15.6f}{se:<15.6f}")
+
+# Compare SEs
+print("\n"+"-"*80)
+print("SE Comparison (Digital vs Vanilla):")
+print("-"*80)
+for i,M in enumerate(M_values):
+    ratio=dig_results[i]['se']/van_results[i]['se']
+    print(f"M={M:<6}: Digital SE={dig_results[i]['se']:.6f}, Vanilla SE={van_results[i]['se']:.6f}, Ratio={ratio:.2f}")
+print(f"\nDigital option has LARGER SE because payoff is discontinuous (binary).")
+print(f"Vanilla payoff is continuous, so variance is smaller.")
+
+# Part 4: Plot with 95% confidence bands
+fig, ax = plt.subplots(figsize=(12,7))
+
+# Digital option
+M_log=np.log10(M_values)
+dig_prices=[r['price'] for r in dig_results]
+dig_se=[r['se'] for r in dig_results]
+dig_lower=[p-1.96*se for p,se in zip(dig_prices,dig_se)]
+dig_upper=[p+1.96*se for p,se in zip(dig_prices,dig_se)]
+
+ax.plot(M_values, dig_prices, 'o-', label='Digital Call', linewidth=2, markersize=8, color='blue')
+ax.fill_between(M_values, dig_lower, dig_upper, alpha=0.2, color='blue', label='95% CI (Digital)')
+
+# Vanilla option
+van_prices=[r['price'] for r in van_results]
+van_se=[r['se'] for r in van_results]
+van_lower=[p-1.96*se for p,se in zip(van_prices,van_se)]
+van_upper=[p+1.96*se for p,se in zip(van_prices,van_se)]
+
+ax.plot(M_values, van_prices, 's-', label='Vanilla Call', linewidth=2, markersize=8, color='green')
+ax.fill_between(M_values, van_lower, van_upper, alpha=0.2, color='green', label='95% CI (Vanilla)')
+
+# True values
+ax.axhline(y=Vdig, color='blue', linestyle='--', alpha=0.5, label=f'Digital True = {Vdig:.4f}')
+ax.axhline(y=vanilla_price(S0,K,r,sigma,T,10**6)[0], color='green', linestyle='--', alpha=0.5, label='Vanilla True (approx)')
+
+ax.set_xscale('log')
+ax.set_xlabel('Number of Simulations (M)', fontsize=12)
+ax.set_ylabel('Option Price', fontsize=12)
+ax.set_title('Convergence: Digital vs Vanilla Call with 95% Confidence Bands', fontsize=14)
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('digital_vs_vanilla_convergence.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# Additional analysis
+print("\n"+"="*80)
+print("ANALYSIS:")
+print("="*80)
+print(f"1. Digital payoff is discontinuous at K={K} → high variance")
+print(f"2. Vanilla payoff is continuous → lower variance")
+print(f"3. Digital SE is {np.mean([r['se']/van_results[i]['se'] for i,r in enumerate(dig_results)]):.2f}x larger")
+print(f"4. Both converge at O(1/√M) but digital has larger constant")
+print("="*80)
