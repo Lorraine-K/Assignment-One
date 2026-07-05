@@ -1,67 +1,86 @@
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 
-def price_european_options(S0,K,r,sigma,T,M):
-    Z=np.random.normal(0,1,M)
-    ST=S0*np.exp((r-.5*sigma**2)*T+sigma*np.sqrt(T)*Z)
-    call_payoffs=np.maximum(ST-K,0)
-    put_payoffs=np.maximum(K-ST,0)
-    df=np.exp(-r*T)
-    call_mean,call_var=np.mean(call_payoffs),np.var(call_payoffs,ddof=1)
-    put_mean,put_var=np.mean(put_payoffs),np.var(put_payoffs,ddof=1)
-    return df*call_mean,df*np.sqrt(call_var/M),df*put_mean,df*np.sqrt(put_var/M)
+# -----------------------------
+# Parameters
+# -----------------------------
+S0 = 100        # Initial stock price
+K = 100         # Strike price
+r = 0.05        # Risk-free rate
+sigma = 0.2     # Volatility
+T = 1           # Time to maturity
 
-S0,K,r,sigma,T=100,100,.05,.2,1
-M_values=[10**3,10**4,10**5,10**6]
-np.random.seed(123)  # Changed from 42 to 123
-print("="*80)
-print(f"{'M':<12} {'Call Price':<15} {'Call SE':<15} {'Put Price':<15} {'Put SE':<15} {'Put-Call Parity Check'}")
-print("-"*80)
-results=[]
+# Monte Carlo sample sizes
+M_values = [10**3, 10**4, 10**5, 10**6]
+
+# Theoretical Put-Call Parity value
+parity_theoretical = S0 - K * np.exp(-r * T)
+
+# Set random seed for reproducibility
+np.random.seed(2026)
+
+results = []
+
+print("-" * 90)
+print(f"{'M':>10} {'Call':>12} {'SE(Call)':>12} {'Put':>12} {'SE(Put)':>12} {'Parity':>15}")
+print("-" * 90)
+
 for M in M_values:
-    call_price,call_se,put_price,put_se=price_european_options(S0,K,r,sigma,T,M)
-    theoretical_diff=S0-K*np.exp(-r*T)
-    mc_diff=call_price-put_price
-    diff_error=abs(mc_diff-theoretical_diff)
-    se_combined=2*np.sqrt(call_se**2+put_se**2)
-    parity_check="✓ PASS" if diff_error<2*se_combined else "✗ FAIL"
-    print(f"{M:<12} {call_price:<15.6f} {call_se:<15.6f} {put_price:<15.6f} {put_se:<15.6f} {parity_check}")
-    results.append({'M':M,'call_price':call_price,'call_se':call_se,'put_price':put_price,'put_se':put_se,'diff_error':diff_error})
-print("="*80)
-print(f"\nTheoretical put-call parity: S0 - K*e^(-rT) = {S0 - K*np.exp(-r*T)}")
-print("\n"+"="*80+"\nConvergence Analysis:\n"+"-"*80)
-print(f"{'M':<12} {'Call SE':<15} {'Put SE':<15} {'SE ratio (M/M_prev)':<20}")
-print("-"*80)
-prev_M=None
-for res in results:
-    if prev_M is not None:
-        ratio_call=res['call_se']/prev_M['call_se']
-        ratio_put=res['put_se']/prev_M['put_se']
-        print(f"{res['M']:<12} {res['call_se']:<15.6f} {res['put_se']:<15.6f} {ratio_call:.4f} (call), {ratio_put:.4f} (put)")
-    else:
-        print(f"{res['M']:<12} {res['call_se']:<15.6f} {res['put_se']:<15.6f} {'N/A':<20}")
-    prev_M=res
-print("="*80)
-fig,(ax1,ax2)=plt.subplots(1,2,figsize=(14,5))
-M_values_log=np.log10(M_values)
-ax1.loglog(M_values,[r['call_se']for r in results],'o-',label='Call SE',lw=2,markersize=8)
-ax1.loglog(M_values,[r['put_se']for r in results],'s-',label='Put SE',lw=2,markersize=8)
-ax1.loglog(M_values,[1/np.sqrt(M)for M in M_values],'--',label='O(1/√M) reference',alpha=.7,c='gray')
-ax1.set_xlabel('Number of simulations (M)',fontsize=12);ax1.set_ylabel('Standard Error',fontsize=12)
-ax1.set_title('Convergence Rate of Monte Carlo Estimator',fontsize=14);ax1.legend();ax1.grid(True,alpha=.3)
-theoretical_call,theoretical_put=10.4506,7.0740
-ax2.semilogx(M_values,[abs(r['call_price']-theoretical_call)for r in results],'o-',label='Call abs error',lw=2,markersize=8)
-ax2.semilogx(M_values,[abs(r['put_price']-theoretical_put)for r in results],'s-',label='Put abs error',lw=2,markersize=8)
-ax2.semilogx(M_values,[1/np.sqrt(M)for M in M_values],'--',label='O(1/√M) reference',alpha=.7,c='gray')
-ax2.set_xlabel('Number of simulations (M)',fontsize=12);ax2.set_ylabel('Absolute Error',fontsize=12)
-ax2.set_title('Error vs. Black-Scholes Price',fontsize=14);ax2.legend();ax2.grid(True,alpha=.3)
-plt.tight_layout();plt.savefig('convergence_analysis.png',dpi=300,bbox_inches='tight');plt.show()
-print("\nDetailed Convergence Analysis:\n"+"-"*80)
-for i in range(len(results)-1):
-    M_prev,M_curr=results[i]['M'],results[i+1]['M']
-    factor=np.sqrt(M_curr/M_prev)
-    print(f"From M={M_prev} to M={M_curr}:")
-    print(f"  Expected SE reduction: 1/{factor:.2f} = {1/factor:.4f}")
-    print(f"  Actual call SE reduction: {results[i]['call_se']/results[i+1]['call_se']:.4f}")
-    print(f"  Actual put SE reduction: {results[i]['put_se']/results[i+1]['put_se']:.4f}\n")
-print("="*80)
+
+    # Generate standard normal random variables
+    Z = np.random.randn(M)
+
+    # Exact GBM simulation
+    ST = S0 * np.exp((r - 0.5 * sigma**2) * T + sigma * np.sqrt(T) * Z)
+
+    # Discounted payoffs
+    call_payoff = np.exp(-r * T) * np.maximum(ST - K, 0)
+    put_payoff = np.exp(-r * T) * np.maximum(K - ST, 0)
+
+    # Monte Carlo estimates
+    call_price = np.mean(call_payoff)
+    put_price = np.mean(put_payoff)
+
+    # Standard errors
+    se_call = np.std(call_payoff, ddof=1) / np.sqrt(M)
+    se_put = np.std(put_payoff, ddof=1) / np.sqrt(M)
+
+    # Put-Call Parity check
+    parity_error = abs(call_price - put_price - parity_theoretical)
+    combined_se = np.sqrt(se_call**2 + se_put**2)
+
+    parity_result = "Verified" if parity_error < 2 * combined_se else "Not Verified"
+
+    results.append([
+        M,
+        call_price,
+        se_call,
+        put_price,
+        se_put,
+        parity_error,
+        parity_result
+    ])
+
+    print(f"{M:>10} {call_price:12.4f} {se_call:12.4f} "
+          f"{put_price:12.4f} {se_put:12.4f} {parity_result:>15}")
+
+# Display results as a table
+df = pd.DataFrame(results, columns=[
+    "M",
+    "Call Price",
+    "SE(Call)",
+    "Put Price",
+    "SE(Put)",
+    "Parity Error",
+    "Parity Check"
+])
+
+print("\nDetailed Results:")
+print(df)
+
+# Convergence comment
+print("\nConvergence Comment:")
+print("The Monte Carlo estimator converges at the rate O(1/sqrt(M)).")
+print("As the number of simulations increases, the standard errors decrease")
+print("approximately proportionally to 1/sqrt(M), leading to more accurate")
+print("option price estimates and improved verification of put-call parity.")
